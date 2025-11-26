@@ -26,4 +26,4 @@ jobs:
         env:
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
           BSKY_PASSWORD: ${{ secrets.BSKY_PASSWORD }}
-        run: python gunner_bot_cloud.py
+        run: python gunner_bot.py
