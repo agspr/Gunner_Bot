@@ -1,18 +1,19 @@
+import time
 import datetime
 import requests
 import os
 import io
 import sys
+import json
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-# --- 🔐 SECRETS (Read from Environment) ---
-# We use os.environ so you don't commit passwords to GitHub
-BSKY_HANDLE = os.environ.get("BSKY_HANDLE")
-BSKY_PASSWORD = os.environ.get("BSKY_PASSWORD")
-# If running locally for testing, you can set them here manually, but don't upload them!
+# --- 🔐 SECRETS ---
+BSKY_HANDLE = "gunnerbot.bsky.social"  
+BSKY_PASSWORD = "omj4-ekku-2mwg-ov7o" 
 
 # --- ⚙️ CONFIGURATION ---
 TEAM_ID_ESPN = 359 # Arsenal
+POLLING_INTERVAL = 120 # Check every 2 mins when game is finishing
 
 # --- 🎨 VISUAL THEME ---
 THEME = {
@@ -25,28 +26,32 @@ THEME = {
     "BAR_TRACK": "#444444"
 }
 
-# --- 🛠️ UTILS ---
+# --- 🛠️ UTILS: FONTS & IMAGES ---
 def get_headers():
     return {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
 def get_font(size):
-    # In the cloud, we always auto-download the font to be safe
+    paths = ["font.ttf", "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/seguiemj.ttf"]
+    for p in paths:
+        if os.path.exists(p): return ImageFont.truetype(p, size)
     try:
-        if not os.path.exists("font.ttf"):
-            url = "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Bold.ttf"
-            r = requests.get(url, timeout=5)
+        url = "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Bold.ttf"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
             with open("font.ttf", "wb") as f: f.write(r.content)
-        return ImageFont.truetype("font.ttf", size)
-    except: return ImageFont.load_default()
+            return ImageFont.truetype("font.ttf", size)
+    except: pass
+    return ImageFont.load_default()
 
 def get_image_from_url(url):
     if not url: return None
     try:
         r = requests.get(url, headers=get_headers(), timeout=10)
-        return Image.open(io.BytesIO(r.content)).convert("RGBA")
+        if r.status_code == 200:
+            return Image.open(io.BytesIO(r.content)).convert("RGBA")
     except: return None
 
-# --- 🖌️ DRAWING ENGINE (Same as before) ---
+# --- 🖌️ DRAWING ENGINE ---
 def add_white_outline(img, thickness=5):
     r, g, b, a = img.split()
     silhouette = Image.merge("RGBA", (a, a, a, a))
@@ -79,16 +84,17 @@ def paste_logo_centered(bg_img, logo_img, center_x, center_y, target_height):
     bg_img.paste(logo_outlined, (paste_x, paste_y), logo_outlined)
 
 def create_match_image(data):
+    print(f"🎨 Creating graphic: Arsenal vs {data['opponent']}")
     width, height = 1080, 1350
     img = Image.new('RGB', (width, height), THEME["BG"])
     draw = ImageDraw.Draw(img)
     
-    # UPDATED FONT SIZES: Bigger & Bolder
-    f_xl = get_font(180) # Score (was 160)
-    f_h = get_font(50)   # Section Headers (was 40)
-    f_body = get_font(38) # Scorers (was 32)
-    f_sm = get_font(36)  # Stat Labels (was 28)
-    f_num = get_font(55) # Stat Numbers (was 36)
+    # LARGE FONTS for readability
+    f_xl = get_font(180)
+    f_h = get_font(50)
+    f_body = get_font(38)
+    f_sm = get_font(36)
+    f_num = get_font(55)
 
     draw.rounded_rectangle([40, 40, 1040, 590], radius=40, fill=THEME["CONTAINER"])
     draw.text((80, 80), "FULL TIME", font=f_sm, fill=THEME["GOLD"])
@@ -99,8 +105,10 @@ def create_match_image(data):
     sw = bbox[2]-bbox[0]
     draw.text((cx - sw/2, cy - (bbox[3]-bbox[1])/1.5), score_txt, font=f_xl, fill=THEME["TEXT"])
 
-    if data.get('ars_logo_img'): paste_logo_centered(img, data['ars_logo_img'], cx - sw/2 - 120, cy, 180)
-    if data.get('opp_logo_img'): paste_logo_centered(img, data['opp_logo_img'], cx + sw/2 + 120, cy, 180)
+    if data.get('ars_logo_img'):
+        paste_logo_centered(img, data['ars_logo_img'], cx - sw/2 - 120, cy, 180)
+    if data.get('opp_logo_img'):
+        paste_logo_centered(img, data['opp_logo_img'], cx + sw/2 + 120, cy, 180)
 
     sy = cy + 120
     for i, g in enumerate(data['ars_goals']):
@@ -113,50 +121,109 @@ def create_match_image(data):
         draw.text((cx + sw/2 + 120 - (bg[2]-bg[0])/2, sy + (i*45)), g, font=f_body, fill=THEME["TEXT_DIM"])
 
     draw.rounded_rectangle([40, 620, 1040, 1230], radius=40, fill=THEME["CONTAINER"])
-    # Adjusted Y position for "MATCH STATS" to accommodate larger text
+    # Adjusted stats position
     draw.text((cx - 140, 660), "MATCH STATS", font=f_h, fill=THEME["TEXT"])
 
-    stats_data = [("POSSESSION", data['ars_poss'], data['opp_poss'], True),("SHOTS", data['ars_shots'], data['opp_shots'], False),("ON TARGET", data['ars_sot'], data['opp_sot'], False),("CORNERS", data['ars_corners'], data['opp_corners'], False)]
-    y_stat = 760 # Shifted down slightly
-    bar_w = 300  # Reduced bar width slightly to give numbers more room
+    stats_data = [
+        ("POSSESSION", data['ars_poss'], data['opp_poss'], True),
+        ("SHOTS", data['ars_shots'], data['opp_shots'], False),
+        ("ON TARGET", data['ars_sot'], data['opp_sot'], False),
+        ("CORNERS", data['ars_corners'], data['opp_corners'], False),
+    ]
     
+    y_stat = 760
+    bar_w = 300
     for label, v_a, v_o, is_pct in stats_data:
         lb = draw.textbbox((0,0), label, font=f_sm)
         draw.text((cx - (lb[2]-lb[0])/2, y_stat - 45), label, font=f_sm, fill=THEME["TEXT_DIM"])
         
-        max_val = 100 if is_pct else max(v_a + v_o, 15) 
-        len_a = min((v_a / max_val) * 100, 100)
-        len_o = min((v_o / max_val) * 100, 100)
-        
-        # Arsenal Number
-        val_a_str = str(v_a)
+        safe_va = int(str(v_a).replace('%','')) if v_a else 0
+        safe_vo = int(str(v_o).replace('%','')) if v_o else 0
+        max_val = 100 if is_pct else max(safe_va + safe_vo, 15) 
+        len_a = min((safe_va / max_val) * 100, 100)
+        len_o = min((safe_vo / max_val) * 100, 100)
+
+        # Numbers and Bars (with spacing fix)
+        val_a_str = str(safe_va)
         na_bbox = draw.textbbox((0,0), val_a_str, font=f_num)
-        # Align number: Center - Gap - BarWidth - NumberWidth
         draw.text((cx - 20 - bar_w - 20 - (na_bbox[2]-na_bbox[0]), y_stat - 15), val_a_str, font=f_num, fill=THEME["RED"])
         
         draw_pill_bar(draw, cx - 20 - bar_w, y_stat, bar_w, 20, 100, THEME["BAR_TRACK"], THEME["BAR_TRACK"])
         act_w = (len_a / 100) * bar_w
         draw.rounded_rectangle([cx - 20 - act_w, y_stat, cx - 20, y_stat + 20], radius=10, fill=THEME["RED"])
-        
-        # Opponent Bar & Number
+
         draw_pill_bar(draw, cx + 20, y_stat, bar_w, 20, len_o, "#666666", THEME["BAR_TRACK"])
-        draw.text((cx + 20 + bar_w + 20, y_stat - 15), str(v_o), font=f_num, fill=THEME["TEXT"])
-        
+        draw.text((cx + 20 + bar_w + 20, y_stat - 15), str(safe_vo), font=f_num, fill=THEME["TEXT"])
         y_stat += 120
 
-    # Footer
+    # Updated Footer
     footer_text = "GUNNER BOT"
     bbox_f = draw.textbbox((0,0), footer_text, font=f_sm)
     f_w = bbox_f[2] - bbox_f[0]
     draw.text((cx - (f_w / 2), height - 80), footer_text, font=f_sm, fill=THEME["GOLD"])
     return img
 
-# --- 📡 API LOGIC ---
+# --- 🗓️ CALENDAR LOGIC (ICS PARSER) ---
+def get_next_game_from_calendar():
+    """Fetches the next game from a public ICS calendar."""
+    ics_url = "https://ics.fixtur.es/v2/arsenal.ics"
+    try:
+        print("📆 Syncing with Official Calendar...")
+        r = requests.get(ics_url, timeout=10)
+        if r.status_code != 200: return None
+            
+        lines = r.text.splitlines()
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        upcoming_games = []
+        current_game = {}
+        
+        for line in lines:
+            if line.startswith("BEGIN:VEVENT"):
+                current_game = {}
+            elif line.startswith("DTSTART"):
+                try:
+                    dt_str = line.split(":")[1].strip()
+                    dt = datetime.datetime.strptime(dt_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=datetime.timezone.utc)
+                    current_game['start'] = dt
+                except: pass
+            elif line.startswith("SUMMARY"):
+                current_game['summary'] = line.split(":", 1)[1].strip()
+            elif line.startswith("END:VEVENT"):
+                if 'start' in current_game and 'summary' in current_game:
+                    if current_game['start'] > now:
+                        upcoming_games.append(current_game)
+                        
+        if not upcoming_games: return None
+            
+        upcoming_games.sort(key=lambda x: x['start'])
+        next_g = upcoming_games[0]
+        
+        summary = next_g['summary']
+        if "Arsenal" in summary:
+            parts = summary.split(" - ")
+            opponent = parts[1] if "Arsenal" in parts[0] else parts[0]
+            is_home = "Arsenal" in parts[0]
+        else:
+            opponent = summary
+            is_home = True 
+
+        return {
+            "date": next_g['start'],
+            "opponent": opponent,
+            "is_home": is_home,
+            "summary": summary
+        }
+    except Exception as e:
+        print(f"❌ Calendar Error: {e}")
+        return None
+
 def get_last_fixture_espn():
     url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/{TEAM_ID_ESPN}/schedule"
     try:
         r = requests.get(url, headers=get_headers(), timeout=10).json()
-        completed = [e for e in r.get('events', []) if e['competitions'][0]['status']['type']['state'] == 'post']
+        events = r.get('events', [])
+        completed = [e for e in events if e['competitions'][0]['status']['type']['state'] == 'post']
         if not completed: return None
         completed.sort(key=lambda x: x['date'])
         return completed[-1]['id']
@@ -167,24 +234,16 @@ def get_match_stats_espn(match_id):
     try:
         r = requests.get(url, headers=get_headers(), timeout=10).json()
         header = r['header']
-        comp = header['competitions'][0]
-        competitors = comp['competitors']
+        status = header['competitions'][0]['status']['type']['state']
         
-        # Identify Arsenal
-        if competitors[0]['id'] == str(TEAM_ID_ESPN): ars, opp = competitors[0], competitors[1]
-        else: ars, opp = competitors[1], competitors[0]
+        if status != 'post': return None
             
-        # Match Time check (to avoid posting old games)
-        # We can check the game date to ensure it's recent
-        game_date_str = comp['date'] # "2025-11-26T20:00Z"
-        game_date = datetime.datetime.strptime(game_date_str.replace("Z", "+0000"), "%Y-%m-%dT%H:%M%z")
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        # If game finished more than 24 hours ago, ignore it
-        if (now - game_date).total_seconds() > 86400:
-            print("⚠️ Last game was over 24 hours ago. Skipping.")
-            return None
-
+        competitors = header['competitions'][0]['competitors']
+        if competitors[0]['id'] == str(TEAM_ID_ESPN):
+            ars, opp = competitors[0], competitors[1]
+        else:
+            ars, opp = competitors[1], competitors[0]
+            
         data = {
             "opponent": opp['team']['displayName'],
             "ars_score": ars['score'], "opp_score": opp['score'],
@@ -219,102 +278,148 @@ def get_match_stats_espn(match_id):
         return data
     except: return None
 
-# --- 🦋 BLUESKY HELPERS ---
-def create_session():
-    resp = requests.post(
-        "https://bsky.social/xrpc/com.atproto.server.createSession",
-        json={"identifier": BSKY_HANDLE, "password": BSKY_PASSWORD}
-    )
-    resp.raise_for_status()
-    return resp.json()
+# --- 🚀 PUBLISHING ---
+def post_to_bluesky(image_path, caption):
+    print("🦋 Connecting to Bluesky...")
+    if "your_" in BSKY_HANDLE:
+        print("⚠️ Secrets not configured. Skipping post.")
+        return
 
-def has_already_posted(session, opponent_name):
-    """Checks recent posts to see if we already posted this result."""
     try:
-        # Get Author Feed
-        feed_url = "https://bsky.social/xrpc/app.bsky.feed.getAuthorFeed"
-        headers = {"Authorization": f"Bearer {session['accessJwt']}"}
-        params = {"actor": session['did'], "limit": 5}
-        
-        r = requests.get(feed_url, headers=headers, params=params)
-        if r.status_code != 200: return False
-        
-        posts = r.json().get('feed', [])
-        for item in posts:
-            post_text = item['post']['record']['text']
-            # Simple check: does the post contain the opponent's name?
-            if opponent_name in post_text and "Full Time" in post_text:
-                print(f"⚠️ Found existing post for {opponent_name}. Skipping.")
-                return True
-        return False
-    except Exception as e:
-        print(f"⚠️ Error checking feed: {e}")
-        return False
+        session_resp = requests.post(
+            "https://bsky.social/xrpc/com.atproto.server.createSession",
+            json={"identifier": BSKY_HANDLE, "password": BSKY_PASSWORD}
+        )
+        session_resp.raise_for_status()
+        session = session_resp.json()
+        access_jwt = session["accessJwt"]
+        did = session["did"]
 
-def post_to_bluesky(image_path, caption, session):
-    print("☁️ Uploading image...")
-    with open(image_path, "rb") as f: img_data = f.read()
-    
-    headers = {"Authorization": f"Bearer {session['accessJwt']}", "Content-Type": "image/png"}
-    blob_resp = requests.post("https://bsky.social/xrpc/com.atproto.repo.uploadBlob", headers=headers, data=img_data)
-    blob_resp.raise_for_status()
-    blob = blob_resp.json()["blob"]
+        print("☁️ Uploading image...")
+        with open(image_path, "rb") as f:
+            img_data = f.read()
+            
+        blob_resp = requests.post(
+            "https://bsky.social/xrpc/com.atproto.repo.uploadBlob",
+            headers={"Authorization": f"Bearer {access_jwt}", "Content-Type": "image/png"},
+            data=img_data
+        )
+        blob_resp.raise_for_status()
+        blob = blob_resp.json()["blob"]
 
-    print("📝 Publishing...")
-    post_data = {
-        "repo": session['did'],
-        "collection": "app.bsky.feed.post",
-        "record": {
-            "$type": "app.bsky.feed.post",
-            "text": caption,
-            "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "embed": {
-                "$type": "app.bsky.embed.images",
-                "images": [{"alt": caption, "image": blob}]
+        print("📝 Publishing Post...")
+        post_data = {
+            "repo": did,
+            "collection": "app.bsky.feed.post",
+            "record": {
+                "$type": "app.bsky.feed.post",
+                "text": caption,
+                "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "embed": {
+                    "$type": "app.bsky.embed.images",
+                    "images": [{"alt": caption, "image": blob}]
+                }
             }
         }
-    }
-    requests.post("https://bsky.social/xrpc/com.atproto.repo.createRecord", headers={"Authorization": f"Bearer {session['accessJwt']}"}, json=post_data).raise_for_status()
-    print("✅ SUCCESS! Posted to Bluesky.")
-
-# --- 🤖 MAIN CLOUD RUN ---
-def main():
-    if not BSKY_HANDLE or not BSKY_PASSWORD:
-        print("❌ Secrets missing. Exiting.")
-        sys.exit(1)
-
-    print("🤖 Gunner Bot (Cloud) Running...")
-    
-    # 1. Get Last Game
-    mid = get_last_fixture_espn()
-    if not mid:
-        print("💤 No finished games found.")
-        return
-
-    # 2. Get Stats
-    stats = get_match_stats_espn(mid)
-    if not stats:
-        print("💤 Game found but stats unavailable (or game too old).")
-        return
-
-    # 3. Login to Bluesky
-    try:
-        session = create_session()
+        requests.post(
+            "https://bsky.social/xrpc/com.atproto.repo.createRecord",
+            headers={"Authorization": f"Bearer {access_jwt}"},
+            json=post_data
+        ).raise_for_status()
+        print("✅ SUCCESS! Posted to Bluesky.")
     except Exception as e:
-        print(f"❌ Login Failed: {e}")
-        return
+        print(f"❌ Bluesky Error: {e}")
 
-    # 4. Check Duplicates
-    if has_already_posted(session, stats['opponent']):
-        print("✅ Already posted. Exiting.")
-        return
-
-    # 5. Generate & Post
-    img = create_match_image(stats)
-    img.save("result.png")
+# --- 🤖 AUTO-PILOT LOOP (OPTIMIZED) ---
+def run_auto_pilot():
+    print("\n🤖 GUNNER BOT: AUTO-PILOT ENGAGED")
+    print("----------------------------------")
     
-    caption = f"Full Time: Arsenal {stats['ars_score']} - {stats['opp_score']} {stats['opponent']}. #COYG #Arsenal"
-    post_to_bluesky("result.png", caption, session)
+    while True:
+        # STEP 1: FIND NEXT MATCH (Uses Calendar ICS for reliability)
+        match = get_next_game_from_calendar()
+        
+        if not match:
+            print("💤 No scheduled games found in Calendar. Sleeping 12 hours.")
+            time.sleep(43200)
+            continue
+            
+        now = datetime.datetime.now(datetime.timezone.utc)
+        kickoff = match['date']
+        
+        # Calculate key milestones
+        # We start checking 30 mins before kickoff (to handle postponements)
+        pre_match_check = kickoff - datetime.timedelta(minutes=30)
+        # We start looking for results 110 mins after kickoff
+        post_match_check = kickoff + datetime.timedelta(minutes=110)
+        
+        sec_until_pre_match = (pre_match_check - now).total_seconds()
+        
+        # DISPLAY INFO
+        print("\n🔴⚪ NEXT FIXTURE (CALENDAR)")
+        print(f"🆚 Rival: {match['opponent']}")
+        print(f"🏟️ Venue: {'HOME' if match['is_home'] else 'AWAY'}")
+        print(f"📅 Date:  {kickoff.strftime('%A, %d %B %Y')}")
+        print(f"⏰ Time:  {kickoff.strftime('%H:%M UTC')}")
+        
+        # STEP 2: LONG SLEEP (Until 30 mins before kickoff)
+        if sec_until_pre_match > 0:
+            print(f"⚡ Wake up for pre-check: {pre_match_check.strftime('%H:%M UTC')}")
+            try:
+                while sec_until_pre_match > 0:
+                    d = int(sec_until_pre_match // 86400)
+                    h = int((sec_until_pre_match % 86400) // 3600)
+                    m = int((sec_until_pre_match % 3600) // 60)
+                    s = int(sec_until_pre_match % 60)
+                    sys.stdout.write(f"\r⏳ Status: Sleeping... {d}d {h}h {m}m {s}s   ")
+                    sys.stdout.flush()
+                    time.sleep(1)
+                    sec_until_pre_match -= 1
+                print("\n\n👀 Waking up for Pre-Match Check...")
+            except KeyboardInterrupt:
+                print("\n🛑 Bot stopped.")
+                sys.exit()
+        
+        # STEP 3: PRE-MATCH VERIFICATION
+        # We verify the game is still on by checking the calendar again briefly
+        # (Simplified here: just proceed to game wait)
+        
+        # Calculate time until post-match check
+        now = datetime.datetime.now(datetime.timezone.utc)
+        sec_until_post_match = (post_match_check - now).total_seconds()
+        
+        if sec_until_post_match > 0:
+            print(f"⚽ Game starting soon! Sleeping until approx. Full Time...")
+            print(f"⚡ Result polling starts at: {post_match_check.strftime('%H:%M UTC')}")
+            time.sleep(sec_until_post_match)
+        
+        # STEP 4: RESULT POLLING
+        print("\n⚡ Match timeline passed! Checking ESPN for Final Result...")
+        attempts = 0
+        while attempts < 30: # Try for 60 mins (30 * 2m)
+            espn_id = get_last_fixture_espn()
+            if espn_id:
+                stats = get_match_stats_espn(espn_id)
+                # Check if this is the game we were waiting for (fuzzy match opponent)
+                if stats and (match['opponent'].lower() in stats['opponent'].lower() or stats['opponent'].lower() in match['opponent'].lower()):
+                    print(f"✅ FULL TIME CONFIRMED: Arsenal vs {stats['opponent']}")
+                    img = create_match_image(stats)
+                    filename = f"result_{stats['opponent']}.png"
+                    img.save(filename)
+                    
+                    caption = f"Full Time: Arsenal {stats['ars_score']} - {stats['opp_score']} {stats['opponent']}. #COYG #Arsenal"
+                    post_to_bluesky(filename, caption)
+                    
+                    print("🎉 Job Done! Resetting logic for next match...")
+                    break 
+            
+            print(f"⏳ Match not final yet. Checking again in {CHECK_INTERVAL}s...")
+            time.sleep(CHECK_INTERVAL)
+            attempts += 1
+        
+        time.sleep(60)
 
 if __name__ == "__main__":
-    main()
+    run_auto_pilot()
+
+
