@@ -82,11 +82,13 @@ def create_match_image(data):
     width, height = 1080, 1350
     img = Image.new('RGB', (width, height), THEME["BG"])
     draw = ImageDraw.Draw(img)
-    f_xl = get_font(160)
-    f_h = get_font(40)
-    f_body = get_font(32)
-    f_sm = get_font(28)
-    f_num = get_font(36)
+    
+    # UPDATED FONT SIZES: Bigger & Bolder
+    f_xl = get_font(180) # Score (was 160)
+    f_h = get_font(50)   # Section Headers (was 40)
+    f_body = get_font(38) # Scorers (was 32)
+    f_sm = get_font(36)  # Stat Labels (was 28)
+    f_num = get_font(55) # Stat Numbers (was 36)
 
     draw.rounded_rectangle([40, 40, 1040, 590], radius=40, fill=THEME["CONTAINER"])
     draw.text((80, 80), "FULL TIME", font=f_sm, fill=THEME["GOLD"])
@@ -111,26 +113,42 @@ def create_match_image(data):
         draw.text((cx + sw/2 + 120 - (bg[2]-bg[0])/2, sy + (i*45)), g, font=f_body, fill=THEME["TEXT_DIM"])
 
     draw.rounded_rectangle([40, 620, 1040, 1230], radius=40, fill=THEME["CONTAINER"])
-    draw.text((cx - 100, 660), "MATCH STATS", font=f_h, fill=THEME["TEXT"])
+    # Adjusted Y position for "MATCH STATS" to accommodate larger text
+    draw.text((cx - 140, 660), "MATCH STATS", font=f_h, fill=THEME["TEXT"])
 
     stats_data = [("POSSESSION", data['ars_poss'], data['opp_poss'], True),("SHOTS", data['ars_shots'], data['opp_shots'], False),("ON TARGET", data['ars_sot'], data['opp_sot'], False),("CORNERS", data['ars_corners'], data['opp_corners'], False)]
-    y_stat = 750
-    bar_w = 320
+    y_stat = 760 # Shifted down slightly
+    bar_w = 300  # Reduced bar width slightly to give numbers more room
+    
     for label, v_a, v_o, is_pct in stats_data:
         lb = draw.textbbox((0,0), label, font=f_sm)
-        draw.text((cx - (lb[2]-lb[0])/2, y_stat - 35), label, font=f_sm, fill=THEME["TEXT_DIM"])
+        draw.text((cx - (lb[2]-lb[0])/2, y_stat - 45), label, font=f_sm, fill=THEME["TEXT_DIM"])
+        
         max_val = 100 if is_pct else max(v_a + v_o, 15) 
         len_a = min((v_a / max_val) * 100, 100)
         len_o = min((v_o / max_val) * 100, 100)
-        draw.text((cx - 20 - bar_w - 50, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
+        
+        # Arsenal Number
+        val_a_str = str(v_a)
+        na_bbox = draw.textbbox((0,0), val_a_str, font=f_num)
+        # Align number: Center - Gap - BarWidth - NumberWidth
+        draw.text((cx - 20 - bar_w - 20 - (na_bbox[2]-na_bbox[0]), y_stat - 15), val_a_str, font=f_num, fill=THEME["RED"])
+        
         draw_pill_bar(draw, cx - 20 - bar_w, y_stat, bar_w, 20, 100, THEME["BAR_TRACK"], THEME["BAR_TRACK"])
         act_w = (len_a / 100) * bar_w
         draw.rounded_rectangle([cx - 20 - act_w, y_stat, cx - 20, y_stat + 20], radius=10, fill=THEME["RED"])
+        
+        # Opponent Bar & Number
         draw_pill_bar(draw, cx + 20, y_stat, bar_w, 20, len_o, "#666666", THEME["BAR_TRACK"])
-        draw.text((cx + 20 + bar_w + 20, y_stat - 8), str(v_o), font=f_num, fill=THEME["TEXT"])
-        y_stat += 110
+        draw.text((cx + 20 + bar_w + 20, y_stat - 15), str(v_o), font=f_num, fill=THEME["TEXT"])
+        
+        y_stat += 120
 
-    draw.text((cx - 80, height - 80), "GUNNER BOT", font=f_sm, fill=THEME["GOLD"])
+    # Footer
+    footer_text = "GUNNER BOT"
+    bbox_f = draw.textbbox((0,0), footer_text, font=f_sm)
+    f_w = bbox_f[2] - bbox_f[0]
+    draw.text((cx - (f_w / 2), height - 80), footer_text, font=f_sm, fill=THEME["GOLD"])
     return img
 
 # --- 📡 API LOGIC ---
