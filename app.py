@@ -252,8 +252,10 @@ def get_match_stats_espn(match_id):
                 if e.get('type', {}).get('text') == 'Goal':
                     scorer = e.get('participants', [{}])[0].get('athlete', {}).get('displayName', 'Unknown')
                     time_str = e.get('clock', {}).get('displayValue', '')
-                    team_id = e.get('team', {}).get('id')
-                    txt = f"{scorer} {time_str}"
+                    # Format time: "45:00" -> "45'"
+                    if ":" in time_str:
+                        time_str = time_str.split(":")[0]
+                    txt = f"{scorer} {time_str}'"
                     if team_id == str(TEAM_ID_ESPN): data['ars_goals'].append(txt)
                     else: data['opp_goals'].append(txt)
         return data
@@ -371,7 +373,10 @@ def main():
 
     # 3. Check Time Window
     try:
-        match_date = datetime.datetime.strptime(stats['match_date'], "%Y-%m-%dT%H:%MZ").replace(tzinfo=datetime.timezone.utc)
+        # Robust ISO parsing (handles 'Z' or offsets)
+        date_str = stats['match_date'].replace('Z', '+00:00')
+        match_date = datetime.datetime.fromisoformat(date_str)
+        
         match_end_approx = match_date + datetime.timedelta(minutes=115)
         now = datetime.datetime.now(datetime.timezone.utc)
         time_since_end = (now - match_end_approx).total_seconds() / 60
@@ -380,9 +385,9 @@ def main():
         print(f"Approx End: {match_end_approx}")
         print(f"Time since approx end: {time_since_end:.1f} minutes")
 
-        # WIDENED WINDOW: 0 to 720 minutes (12 hours)
-        if 0 <= time_since_end <= 720:
-            print("Match is within the 12-hour window.")
+        # WIDENED WINDOW: 0 to 1440 minutes (24 hours)
+        if 0 <= time_since_end <= 1440:
+            print("Match is within the 24-hour window.")
             
             # 4. Check Duplicates
             if session and check_if_already_posted(session, stats['opponent']):
@@ -403,7 +408,7 @@ def main():
                 print(f"[DRY RUN] Would post: {caption}")
                 
         else:
-            print("Match result is too old (> 12 hours) or in future. Skipping.")
+            print("Match result is too old (> 24 hours) or in future. Skipping.")
 
     except Exception as e:
         print(f"Error parsing date or checking time: {e}")
