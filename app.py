@@ -249,13 +249,20 @@ def get_match_stats_espn(match_id):
         timeline = header.get('competitions', [{}])[0].get('details', [])
         if timeline:
             for e in timeline:
-                if e.get('type', {}).get('text') == 'Goal':
+                if e.get('scoringPlay', False):
                     scorer = e.get('participants', [{}])[0].get('athlete', {}).get('displayName', 'Unknown')
                     time_str = e.get('clock', {}).get('displayValue', '')
+                    
                     # Format time: "45:00" -> "45'"
                     if ":" in time_str:
                         time_str = time_str.split(":")[0]
-                    txt = f"{scorer} {time_str}'"
+                    
+                    if not time_str.endswith("'"):
+                        time_str += "'"
+                        
+                    txt = f"{scorer} {time_str}"
+                    
+                    team_id = e.get('team', {}).get('id')
                     if team_id == str(TEAM_ID_ESPN): data['ars_goals'].append(txt)
                     else: data['opp_goals'].append(txt)
         return data
