@@ -179,7 +179,8 @@ def create_match_image(data):
         len_a = min((safe_va / max_val) * 100, 100)
         len_o = min((safe_vo / max_val) * 100, 100)
 
-        draw.text((cx - 20 - bar_w - 50, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
+        # Increased offset from 50 to 90 to prevent overlap
+        draw.text((cx - 20 - bar_w - 90, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
         draw_pill_bar(draw, cx - 20 - bar_w, y_stat, bar_w, 20, 100, THEME["BAR_TRACK"], THEME["BAR_TRACK"])
         act_w = (len_a / 100) * bar_w
         draw.rounded_rectangle([cx - 20 - act_w, y_stat, cx - 20, y_stat + 20], radius=10, fill=THEME["RED"])
@@ -250,7 +251,10 @@ def get_match_stats_espn(match_id):
         if timeline:
             for e in timeline:
                 if e.get('scoringPlay', False):
-                    scorer = e.get('participants', [{}])[0].get('athlete', {}).get('displayName', 'Unknown')
+                    scorer_full = e.get('participants', [{}])[0].get('athlete', {}).get('displayName', 'Unknown')
+                    # Last name only, ALL CAPS
+                    scorer_last = scorer_full.split()[-1].upper()
+                    
                     time_str = e.get('clock', {}).get('displayValue', '')
                     
                     # Format time: "45:00" -> "45'"
@@ -260,7 +264,8 @@ def get_match_stats_espn(match_id):
                     if not time_str.endswith("'"):
                         time_str += "'"
                         
-                    txt = f"{scorer} {time_str}"
+                    # Extra spacing
+                    txt = f"{scorer_last}   {time_str}"
                     
                     team_id = e.get('team', {}).get('id')
                     if team_id == str(TEAM_ID_ESPN): data['ars_goals'].append(txt)
