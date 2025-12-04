@@ -380,8 +380,8 @@ def main():
         print(f"Approx End: {match_end_approx}")
         print(f"Time since approx end: {time_since_end:.1f} minutes")
 
-        # WIDENED WINDOW: 0 to 1440 minutes (24 hours) for TESTING
-        if 0 <= time_since_end <= 1440:
+        # WIDENED WINDOW: 0 to 720 minutes (12 hours)
+        if 0 <= time_since_end <= 720:
             print("Match is within the 12-hour window.")
             
             # 4. Check Duplicates
