@@ -11,6 +11,7 @@ BSKY_PASSWORD = os.environ.get("BSKY_PASSWORD")
 
 # --- ⚙️ CONFIGURATION ---
 TEAM_ID_ESPN = 359 # Arsenal
+CHECK_INTERVAL = 120 # Check every 2 mins when game is finishing
 
 # --- 🎨 VISUAL THEME ---
 THEME = {
@@ -81,7 +82,7 @@ def paste_logo_centered(bg_img, logo_img, center_x, center_y, target_height):
     bg_img.paste(logo_outlined, (paste_x, paste_y), logo_outlined)
 
 def create_match_image(data):
-    print(f"Creating graphic: Arsenal vs {data['opponent']}")
+    print(f"🎨 Creating graphic: Arsenal vs {data['opponent']}")
     width, height = 1080, 1350
     img = Image.new('RGB', (width, height), THEME["BG"])
     draw = ImageDraw.Draw(img)
