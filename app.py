@@ -102,40 +102,80 @@ def create_match_image(data):
     sw = bbox[2]-bbox[0]
     draw.text((cx - sw/2, cy - (bbox[3]-bbox[1])/1.5), score_txt, font=f_xl, fill=THEME["TEXT"])
 
+    # Badges
     if data.get('ars_logo_img'):
         paste_logo_centered(img, data['ars_logo_img'], cx - sw/2 - 120, cy, 180)
     if data.get('opp_logo_img'):
         paste_logo_centered(img, data['opp_logo_img'], cx + sw/2 + 120, cy, 180)
 
-    sy = cy + 120
+    # Goalscorers (Moved under badges)
+    # Arsenal Scorers
+    y_ars = cy + 110
     for i, g in enumerate(data['ars_goals']):
         if i > 3: break
-        bg = draw.textbbox((0,0), g, font=f_body)
-        draw.text((cx - sw/2 - 120 - (bg[2]-bg[0])/2, sy + (i*45)), g, font=f_body, fill=THEME["TEXT_DIM"])
+        bg = draw.textbbox((0,0), g, font=f_sm) # Using f_sm as requested
+        # Center under Arsenal badge (cx - sw/2 - 120)
+        badge_center_x = cx - sw/2 - 120
+        draw.text((badge_center_x - (bg[2]-bg[0])/2, y_ars + (i*35)), g, font=f_sm, fill=THEME["TEXT_DIM"])
+
+    # Opponent Scorers
+    y_opp = cy + 110
     for i, g in enumerate(data['opp_goals']):
         if i > 3: break
-        bg = draw.textbbox((0,0), g, font=f_body)
-        draw.text((cx + sw/2 + 120 - (bg[2]-bg[0])/2, sy + (i*45)), g, font=f_body, fill=THEME["TEXT_DIM"])
+        bg = draw.textbbox((0,0), g, font=f_sm) # Using f_sm as requested
+        # Center under Opponent badge (cx + sw/2 + 120)
+        badge_center_x = cx + sw/2 + 120
+        draw.text((badge_center_x - (bg[2]-bg[0])/2, y_opp + (i*35)), g, font=f_sm, fill=THEME["TEXT_DIM"])
 
     draw.rounded_rectangle([40, 620, 1040, 1230], radius=40, fill=THEME["CONTAINER"])
-    draw.text((cx - 100, 660), "MATCH STATS", font=f_h, fill=THEME["TEXT"])
+    
+    # Centered Header
+    header_txt = "MATCH STATS"
+    bbox_h = draw.textbbox((0,0), header_txt, font=f_h)
+    draw.text((cx - (bbox_h[2]-bbox_h[0])/2, 660), header_txt, font=f_h, fill=THEME["TEXT"])
+
+    # Possession Logic (Sum to 100%)
+    p_a = data['ars_poss']
+    p_o = data['opp_poss']
+    if p_a + p_o != 100 and p_a + p_o > 0:
+        # Simple adjustment: if sum != 100, adjust the larger one to make it fit
+        diff = 100 - (p_a + p_o)
+        if p_a >= p_o: p_a += diff
+        else: p_o += diff
+    
+    # Format with %
+    p_a_str = f"{p_a}%"
+    p_o_str = f"{p_o}%"
 
     stats_data = [
-        ("POSSESSION", data['ars_poss'], data['opp_poss'], True),
+        ("POSSESSION", p_a_str, p_o_str, True),
         ("SHOTS", data['ars_shots'], data['opp_shots'], False),
         ("ON TARGET", data['ars_sot'], data['opp_sot'], False),
         ("CORNERS", data['ars_corners'], data['opp_corners'], False),
     ]
     
-    y_stat = 750
+    # Add xG if available
+    if data.get('ars_xg') is not None and data.get('opp_xg') is not None:
+        stats_data.insert(1, ("EXPECTED GOALS (xG)", data['ars_xg'], data['opp_xg'], False))
+
+    y_stat = 770 # Increased spacing (was 750)
     bar_w = 320
     for label, v_a, v_o, is_pct in stats_data:
         lb = draw.textbbox((0,0), label, font=f_sm)
         draw.text((cx - (lb[2]-lb[0])/2, y_stat - 35), label, font=f_sm, fill=THEME["TEXT_DIM"])
         
-        safe_va = int(str(v_a).replace('%','')) if v_a else 0
-        safe_vo = int(str(v_o).replace('%','')) if v_o else 0
-        max_val = 100 if is_pct else max(safe_va + safe_vo, 15) 
+        # Parse values for bars
+        safe_va = float(str(v_a).replace('%','')) if v_a else 0
+        safe_vo = float(str(v_o).replace('%','')) if v_o else 0
+        
+        # For xG, max value is usually small (e.g. 2.5), so we need a different scale or just max(sum, 1)
+        if "xG" in label:
+            max_val = max(safe_va + safe_vo, 3.0) # Assume 3.0 is a decent baseline for xG bars
+        elif is_pct:
+            max_val = 100
+        else:
+            max_val = max(safe_va + safe_vo, 15) 
+
         len_a = min((safe_va / max_val) * 100, 100)
         len_o = min((safe_vo / max_val) * 100, 100)
 
@@ -189,6 +229,7 @@ def get_match_stats_espn(match_id):
             "ars_goals": [], "opp_goals": [],
             "ars_poss": 0, "ars_shots": 0, "ars_sot": 0, "ars_corners": 0,
             "opp_poss": 0, "opp_shots": 0, "opp_sot": 0, "opp_corners": 0,
+            "ars_xg": None, "opp_xg": None, # Init xG
             "match_date": header['competitions'][0]['date'] # Added date for freshness check
         }
 
@@ -196,12 +237,14 @@ def get_match_stats_espn(match_id):
         for team in boxscore.get('teams', []):
             prefix = "ars" if team['team']['id'] == str(TEAM_ID_ESPN) else "opp"
             for s in team.get('statistics', []):
-                try: val = int(float(s['displayValue']))
+                try: val = float(s['displayValue']) if '.' in s['displayValue'] else int(s['displayValue'])
                 except: val = 0
-                if s['name'] == "possessionPct": data[f"{prefix}_poss"] = val
-                elif s['name'] == "totalShots": data[f"{prefix}_shots"] = val
-                elif s['name'] == "shotsOnTarget": data[f"{prefix}_sot"] = val
-                elif s['name'] == "wonCorners": data[f"{prefix}_corners"] = val
+                
+                if s['name'] == "possessionPct": data[f"{prefix}_poss"] = int(val)
+                elif s['name'] == "totalShots": data[f"{prefix}_shots"] = int(val)
+                elif s['name'] == "shotsOnTarget": data[f"{prefix}_sot"] = int(val)
+                elif s['name'] == "wonCorners": data[f"{prefix}_corners"] = int(val)
+                elif s['name'] == "expectedGoals": data[f"{prefix}_xg"] = val # Capture xG
 
         timeline = header.get('competitions', [{}])[0].get('details', [])
         if timeline:
@@ -337,8 +380,8 @@ def main():
         print(f"Approx End: {match_end_approx}")
         print(f"Time since approx end: {time_since_end:.1f} minutes")
 
-        # WIDENED WINDOW: 0 to 720 minutes (12 hours)
-        if 0 <= time_since_end <= 720:
+        # WIDENED WINDOW: 0 to 1440 minutes (24 hours) for TESTING
+        if 0 <= time_since_end <= 1440:
             print("Match is within the 12-hour window.")
             
             # 4. Check Duplicates
