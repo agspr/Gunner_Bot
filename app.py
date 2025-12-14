@@ -255,6 +255,9 @@ def get_match_stats_espn(match_id):
                     # Last name only, ALL CAPS
                     scorer_last = scorer_full.split()[-1].upper()
                     
+                    if e.get('ownGoal', False):
+                        scorer_last += " (OG)"
+                    
                     time_str = e.get('clock', {}).get('displayValue', '')
                     
                     # Format time: "45:00" -> "45'"
