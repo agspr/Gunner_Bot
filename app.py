@@ -185,12 +185,17 @@ def create_match_image(data):
         ("POSSESSION", p_a_str, p_o_str, True),
         ("SHOTS", data['ars_shots'], data['opp_shots'], False),
         ("ON TARGET", data['ars_sot'], data['opp_sot'], False),
-        ("CORNERS", data['ars_corners'], data['opp_corners'], False),
     ]
-    
-    # Add xG if available
+
+    # Add xG if available (insert at position 1, after POSSESSION)
     if data.get('ars_xg') is not None and data.get('opp_xg') is not None:
         stats_data.insert(1, ("EXPECTED GOALS (xG)", data['ars_xg'], data['opp_xg'], False))
+
+    # Add PASS COMPLETION if available, otherwise CORNERS
+    if data.get('ars_pass_pct') is not None and data.get('opp_pass_pct') is not None:
+        stats_data.append(("PASS COMPLETION", f"{data['ars_pass_pct']}%", f"{data['opp_pass_pct']}%", True))
+    else:
+        stats_data.append(("CORNERS", data['ars_corners'], data['opp_corners'], False))
 
     y_stat = 770 # Increased spacing (was 750)
     bar_w = 320
@@ -277,7 +282,8 @@ def get_match_stats_espn(match_id):
             "ars_goals": [], "opp_goals": [],
             "ars_poss": 0, "ars_shots": 0, "ars_sot": 0, "ars_corners": 0,
             "opp_poss": 0, "opp_shots": 0, "opp_sot": 0, "opp_corners": 0,
-            "ars_xg": None, "opp_xg": None, # Init xG
+            "ars_xg": None, "opp_xg": None,             # Init xG
+            "ars_pass_pct": None, "opp_pass_pct": None,  # Init pass completion %
             "match_date": header['competitions'][0]['date'] # Added date for freshness check
         }
 
@@ -292,6 +298,7 @@ def get_match_stats_espn(match_id):
                 elif s['name'] == "totalShots": data[f"{prefix}_shots"] = int(val)
                 elif s['name'] == "shotsOnTarget": data[f"{prefix}_sot"] = int(val)
                 elif s['name'] == "wonCorners": data[f"{prefix}_corners"] = int(val)
+                elif s['name'] == "passPct": data[f"{prefix}_pass_pct"] = int(round(val * 100))  # Convert decimal to percentage
                 elif s['name'] == "expectedGoals": data[f"{prefix}_xg"] = val # Capture xG
 
         timeline = header.get('competitions', [{}])[0].get('details', [])
