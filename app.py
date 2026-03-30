@@ -18,10 +18,13 @@ THEME = {
     "RED": "#EF0107",
     "GOLD": "#D4A046",
     "BG": "#121212",
-    "CONTAINER": "#2A2A2A", 
+    "CONTAINER": "#2A2A2A",
     "TEXT": "#F5F5F5",
     "TEXT_DIM": "#C4C4C4",
-    "BAR_TRACK": "#444444"
+    "BAR_TRACK": "#444444",
+    "BAR_OPP": "#555555",      # Opponent bar color (improved contrast)
+    "RED_DIM": "#B80003",      # Darker red for gradient (losing stat)
+    "RED_HI": "#FF2222",       # Brighter red for gradient (winning stat)
 }
 
 # --- 🛠️ UTILS: FONTS & IMAGES ---
@@ -64,11 +67,38 @@ def add_white_outline(img, thickness=5):
     result.paste(img, (0,0), img)
     return result
 
-def draw_pill_bar(draw, x, y, width, height, percentage, color_active, color_track):
-    draw.rounded_rectangle([x, y, x + width, y + height], radius=height/2, fill=color_track)
-    if percentage > 0:
-        active_width = max(height, width * (percentage / 100))
-        draw.rounded_rectangle([x, y, x + active_width, y + height], radius=height/2, fill=color_active)
+def draw_shadow_rect(img, x1, y1, x2, y2, radius, blur=20, offset_x=5, offset_y=7, opacity=130):
+    """Draw a soft drop shadow behind a rounded rectangle."""
+    shadow_layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow_layer)
+    sd.rounded_rectangle(
+        [x1 + offset_x, y1 + offset_y, x2 + offset_x, y2 + offset_y],
+        radius=radius, fill=(0, 0, 0, opacity)
+    )
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=blur))
+    img.paste(shadow_layer.convert('RGB'), (0, 0), shadow_layer.split()[3])
+
+def draw_gradient_pill(img, x, y, width, height, color_left, color_right):
+    """Draw a horizontal gradient-filled pill shape."""
+    def hex_to_rgb(h):
+        return tuple(int(h.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+
+    lr, lg, lb = hex_to_rgb(color_left)
+    rr, rg, rb = hex_to_rgb(color_right)
+
+    # Create gradient rectangle
+    grad = Image.new('RGB', (width, height))
+    grad_d = ImageDraw.Draw(grad)
+    for col in range(width):
+        t = col / max(width - 1, 1)
+        grad_d.line([(col, 0), (col, height - 1)],
+                    fill=(int(lr + t*(rr-lr)), int(lg + t*(rg-lg)), int(lb + t*(rb-lb))))
+
+    # Create pill-shaped mask
+    mask = Image.new('L', (width, height), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, width - 1, height - 1],
+                                            radius=height // 2, fill=255)
+    img.paste(grad, (x, y), mask)
 
 def paste_logo_centered(bg_img, logo_img, center_x, center_y, target_height):
     if not logo_img: return
@@ -93,6 +123,8 @@ def create_match_image(data):
     f_sm = get_font(28)
     f_num = get_font(36)
 
+    # Draw drop shadow for score container
+    draw_shadow_rect(img, 40, 40, 1040, 590, radius=40)
     draw.rounded_rectangle([40, 40, 1040, 590], radius=40, fill=THEME["CONTAINER"])
     draw.text((80, 80), "FULL TIME", font=f_sm, fill=THEME["GOLD"])
 
@@ -127,8 +159,10 @@ def create_match_image(data):
         badge_center_x = cx + sw/2 + 120
         draw.text((badge_center_x - (bg[2]-bg[0])/2, y_opp + (i*35)), g, font=f_sm, fill=THEME["TEXT_DIM"])
 
+    # Draw drop shadow for stats container
+    draw_shadow_rect(img, 40, 620, 1040, 1230, radius=40)
     draw.rounded_rectangle([40, 620, 1040, 1230], radius=40, fill=THEME["CONTAINER"])
-    
+
     # Centered Header
     header_txt = "MATCH STATS"
     bbox_h = draw.textbbox((0,0), header_txt, font=f_h)
@@ -179,14 +213,27 @@ def create_match_image(data):
         len_a = min((safe_va / max_val) * 100, 100)
         len_o = min((safe_vo / max_val) * 100, 100)
 
-        # Increased offset from 50 to 90 to prevent overlap
-        draw.text((cx - 20 - bar_w - 90, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
-        draw_pill_bar(draw, cx - 20 - bar_w, y_stat, bar_w, 20, 100, THEME["BAR_TRACK"], THEME["BAR_TRACK"])
-        act_w = (len_a / 100) * bar_w
-        draw.rounded_rectangle([cx - 20 - act_w, y_stat, cx - 20, y_stat + 20], radius=10, fill=THEME["RED"])
+        # Determine if Arsenal wins this stat (higher value is better for all stats)
+        ars_winning = safe_va > safe_vo
 
-        draw_pill_bar(draw, cx + 20, y_stat, bar_w, 20, len_o, "#666666", THEME["BAR_TRACK"])
+        # Arsenal bar (right-anchored, grows leftward)
+        draw.text((cx - 20 - bar_w - 90, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
+        draw.rounded_rectangle([cx - 20 - bar_w, y_stat, cx - 20, y_stat + 20],
+                               radius=10, fill=THEME["BAR_TRACK"])
+        act_w = max(20, int((len_a / 100) * bar_w))
+        if act_w > 0:
+            left_col = THEME["RED"] if ars_winning else THEME["RED_DIM"]
+            right_col = THEME["RED_HI"] if ars_winning else THEME["RED"]
+            draw_gradient_pill(img, int(cx - 20 - act_w), y_stat, act_w, 20, left_col, right_col)
+
+        # Opponent bar (left-anchored, grows rightward)
         draw.text((cx + 20 + bar_w + 20, y_stat - 8), str(v_o), font=f_num, fill=THEME["TEXT"])
+        draw.rounded_rectangle([cx + 20, y_stat, cx + 20 + bar_w, y_stat + 20],
+                               radius=10, fill=THEME["BAR_TRACK"])
+        opp_act_w = max(20, int((len_o / 100) * bar_w))
+        if opp_act_w > 0:
+            draw_gradient_pill(img, int(cx + 20), y_stat, opp_act_w, 20, THEME["BAR_TRACK"], THEME["BAR_OPP"])
+
         y_stat += 110
 
     # Updated Footer
