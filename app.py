@@ -128,6 +128,12 @@ def create_match_image(data):
     draw.rounded_rectangle([40, 40, 1040, 590], radius=40, fill=THEME["CONTAINER"])
     draw.text((80, 80), "FULL TIME", font=f_sm, fill=THEME["GOLD"])
 
+    # Competition name (right-aligned in score header)
+    if data.get('competition'):
+        comp_txt = data['competition'].upper()
+        comp_bbox = draw.textbbox((0, 0), comp_txt, font=f_sm)
+        draw.text((1040 - 40 - (comp_bbox[2] - comp_bbox[0]), 80), comp_txt, font=f_sm, fill=THEME["TEXT_DIM"])
+
     cx, cy = width / 2, 315 
     score_txt = f"{data['ars_score']} - {data['opp_score']}"
     bbox = draw.textbbox((0,0), score_txt, font=f_xl)
@@ -158,6 +164,18 @@ def create_match_image(data):
         # Center under Opponent badge (cx + sw/2 + 120)
         badge_center_x = cx + sw/2 + 120
         draw.text((badge_center_x - (bg[2]-bg[0])/2, y_opp + (i*35)), g, font=f_sm, fill=THEME["TEXT_DIM"])
+
+    # Venue and attendance line at bottom of score container
+    context_parts = []
+    if data.get('venue'):
+        context_parts.append(data['venue'])
+    if data.get('attendance'):
+        context_parts.append(f"Att: {data['attendance']:,}")
+    if context_parts:
+        f_ctx = get_font(22)
+        ctx_txt = "  |  ".join(context_parts)
+        ctx_bbox = draw.textbbox((0, 0), ctx_txt, font=f_ctx)
+        draw.text((cx - (ctx_bbox[2] - ctx_bbox[0]) / 2, 560), ctx_txt, font=f_ctx, fill=THEME["TEXT_DIM"])
 
     # Draw drop shadow for stats container
     draw_shadow_rect(img, 40, 620, 1040, 1230, radius=40)
@@ -274,6 +292,12 @@ def get_match_stats_espn(match_id):
         else:
             ars, opp = competitors[1], competitors[0]
             
+        # Extract match context from gameInfo and header
+        game_info = r.get('gameInfo', {})
+        venue_info = game_info.get('venue', {})
+        officials = game_info.get('officials', [])
+        league_info = header.get('league', {})
+
         data = {
             "opponent": opp['team']['displayName'],
             "ars_score": ars['score'], "opp_score": opp['score'],
@@ -284,7 +308,12 @@ def get_match_stats_espn(match_id):
             "opp_poss": 0, "opp_shots": 0, "opp_sot": 0, "opp_corners": 0,
             "ars_xg": None, "opp_xg": None,             # Init xG
             "ars_pass_pct": None, "opp_pass_pct": None,  # Init pass completion %
-            "match_date": header['competitions'][0]['date'] # Added date for freshness check
+            "match_date": header['competitions'][0]['date'], # Added date for freshness check
+            # Match context
+            "venue": venue_info.get('fullName', ''),
+            "attendance": game_info.get('attendance'),
+            "referee": officials[0].get('displayName', '') if officials else '',
+            "competition": league_info.get('name', ''),
         }
 
         boxscore = r.get('boxscore', {})
