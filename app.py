@@ -82,7 +82,7 @@ def paste_logo_centered(bg_img, logo_img, center_x, center_y, target_height):
     bg_img.paste(logo_outlined, (paste_x, paste_y), logo_outlined)
 
 def create_match_image(data):
-    print(f"🎨 Creating graphic: Arsenal vs {data['opponent']}")
+    print(f"Creating graphic: Arsenal vs {data['opponent']}")
     width, height = 1080, 1350
     img = Image.new('RGB', (width, height), THEME["BG"])
     draw = ImageDraw.Draw(img)
@@ -249,27 +249,41 @@ def get_match_stats_espn(match_id):
 
         timeline = header.get('competitions', [{}])[0].get('details', [])
         if timeline:
+            # Aggregate goals by scorer to handle multiple goals per player
+            ars_goals_dict = {}
+            opp_goals_dict = {}
+
             for e in timeline:
                 if e.get('scoringPlay', False):
                     scorer_full = e.get('participants', [{}])[0].get('athlete', {}).get('displayName', 'Unknown')
                     # Last name only, ALL CAPS
                     scorer_last = scorer_full.split()[-1].upper()
-                    
+
+                    # Handle own goals
+                    if e.get('ownGoal', False):
+                        scorer_last += " (OG)"
+
                     time_str = e.get('clock', {}).get('displayValue', '')
-                    
+
                     # Format time: "45:00" -> "45'"
                     if ":" in time_str:
                         time_str = time_str.split(":")[0]
-                    
+
                     if not time_str.endswith("'"):
                         time_str += "'"
-                        
-                    # Extra spacing
-                    txt = f"{scorer_last}   {time_str}"
-                    
+
                     team_id = e.get('team', {}).get('id')
-                    if team_id == str(TEAM_ID_ESPN): data['ars_goals'].append(txt)
-                    else: data['opp_goals'].append(txt)
+                    target_dict = ars_goals_dict if team_id == str(TEAM_ID_ESPN) else opp_goals_dict
+
+                    # Aggregate times for each scorer
+                    if scorer_last in target_dict:
+                        target_dict[scorer_last].append(time_str)
+                    else:
+                        target_dict[scorer_last] = [time_str]
+
+            # Format goals as "SCORER   time1, time2, time3"
+            data['ars_goals'] = [f"{name}   {', '.join(times)}" for name, times in ars_goals_dict.items()]
+            data['opp_goals'] = [f"{name}   {', '.join(times)}" for name, times in opp_goals_dict.items()]
         return data
     except Exception as e:
         print(f"Error fetching stats: {e}")
