@@ -1,0 +1,83 @@
+name: Match Day Scheduler
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for Arsenal matches today
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TEAM_ID=359
+          TODAY=$(date -u +%Y%m%d)
+          NOW_TS=$(date -u +%s)
+
+          echo "Checking ESPN for Arsenal fixtures on $TODAY..."
+
+          SCHEDULE=$(curl -sf "https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${TEAM_ID}/schedule")
+          if [ -z "$SCHEDULE" ]; then
+            echo "Failed to fetch schedule."
+            exit 0
+          fi
+
+          MATCHES=$(echo "$SCHEDULE" | jq -r --arg today "$TODAY" '
+            .events[] |
+            select(
+              (.date | split("T")[0] | gsub("-";"")) == $today and
+              (.competitions[0].status.type.state == "pre" or .competitions[0].status.type.state == "in")
+            ) |
+            {
+              id: .id,
+              date: .date,
+              state: .competitions[0].status.type.state,
+              name: .name
+            }
+          ')
+
+          if [ -z "$MATCHES" ]; then
+            echo "No Arsenal matches today."
+            exit 0
+          fi
+
+          echo "$MATCHES" | jq -s '.' | jq -r '.[] | "Match: \(.name) | State: \(.state) | Kick-off: \(.date)"'
+
+          echo "$MATCHES" | jq -c '.' | while read -r match; do
+            MATCH_DATE=$(echo "$match" | jq -r '.date')
+            MATCH_STATE=$(echo "$match" | jq -r '.state')
+            MATCH_NAME=$(echo "$match" | jq -r '.name')
+
+            KICK_TS=$(date -u -d "$MATCH_DATE" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M" "${MATCH_DATE%Z}" +%s 2>/dev/null)
+
+            if [ "$MATCH_STATE" = "in" ]; then
+              # Match already in progress — start polling in 45 min
+              POLL_START_TS=$((NOW_TS + 2700))
+            else
+              # Poll starting 100 min after kick-off (90min + 10min buffer)
+              POLL_START_TS=$((KICK_TS + 6000))
+            fi
+
+            WAIT=$((POLL_START_TS - NOW_TS))
+            if [ "$WAIT" -lt 0 ]; then
+              WAIT=0
+            fi
+
+            # Skip if kick-off was more than 3 hours ago (stale)
+            SINCE_KICK=$((NOW_TS - KICK_TS))
+            if [ "$SINCE_KICK" -gt 10800 ]; then
+              echo "Skipping '$MATCH_NAME': kick-off was ${SINCE_KICK}s ago (>3h)."
+              continue
+            fi
+
+            echo "Dispatching poller for '$MATCH_NAME' with wait=${WAIT}s"
+            gh workflow run poller.yml \
+              -f wait_seconds="$WAIT" \
+              -f match_date="$MATCH_DATE" \
+              --repo "$GITHUB_REPOSITORY"
+          done

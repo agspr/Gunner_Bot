@@ -1,5 +1,6 @@
 import datetime
 import logging
+import sys
 
 from gunner_bot.data import get_last_fixture_espn, get_match_stats_espn
 from gunner_bot.rendering import create_match_image
@@ -25,12 +26,12 @@ def main():
     espn_id = get_last_fixture_espn()
     if not espn_id:
         log.info("No completed games found.")
-        return
+        sys.exit(2)
 
     stats = get_match_stats_espn(espn_id)
     if not stats:
         log.error("Could not fetch match stats.")
-        return
+        sys.exit(1)
 
     # 3. Check time window (only post within 24 hours of match end)
     try:
@@ -44,12 +45,12 @@ def main():
 
         if not (0 <= time_since_end <= 1440):
             log.info("Match result is outside 24-hour window. Skipping.")
-            return
+            sys.exit(2)
 
         # 4. Check for duplicate posts
         if session and check_if_already_posted(session, stats['opponent']):
             log.info("Already posted this result. Skipping.")
-            return
+            sys.exit(2)
 
         log.info("Generating report for Arsenal vs %s", stats['opponent'])
 
@@ -61,11 +62,14 @@ def main():
 
         if session:
             post_to_bluesky(session, filename, caption)
+            sys.exit(0)
         else:
             log.info("[DRY RUN] Would post: %s", caption)
+            sys.exit(2)
 
     except Exception as e:
         log.exception("Error in main execution: %s", e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

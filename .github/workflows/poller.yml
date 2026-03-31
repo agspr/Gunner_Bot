@@ -1,0 +1,89 @@
+name: Match Result Poller
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_seconds:
+        description: 'Seconds to wait before polling starts'
+        required: false
+        default: '0'
+      match_date:
+        description: 'Match date for logging'
+        required: false
+        default: 'manual'
+
+jobs:
+  poll-and-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Handle wait and poll
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
+          BSKY_PASSWORD: ${{ secrets.BSKY_PASSWORD }}
+        run: |
+          set -o pipefail
+
+          WAIT=${{ inputs.wait_seconds }}
+          MATCH_DATE="${{ inputs.match_date }}"
+          MAX_WAIT=18000   # 5 hours — stay under 6h job limit
+          MAX_CHAIN=14400  # sleep 4h per chain link
+          MAX_POLL=10800   # 3 hour polling window
+          INTERVAL=300     # poll every 5 minutes
+
+          echo "Match date: $MATCH_DATE"
+          echo "Requested wait: ${WAIT}s"
+
+          # If wait exceeds safe limit, sleep partially and re-dispatch
+          if [ "$WAIT" -gt "$MAX_WAIT" ]; then
+            echo "Wait ${WAIT}s exceeds ${MAX_WAIT}s. Chaining: sleep ${MAX_CHAIN}s, then re-dispatch."
+            sleep "$MAX_CHAIN"
+            REMAINING=$((WAIT - MAX_CHAIN))
+            echo "Re-dispatching with remaining wait=${REMAINING}s"
+            gh workflow run poller.yml \
+              -f wait_seconds="$REMAINING" \
+              -f match_date="$MATCH_DATE" \
+              --repo "$GITHUB_REPOSITORY"
+            exit 0
+          fi
+
+          # Normal path: wait then poll
+          if [ "$WAIT" -gt 0 ]; then
+            echo "Sleeping ${WAIT}s until estimated match end..."
+            sleep "$WAIT"
+          fi
+
+          # Install Python dependencies only when we're about to poll
+          python -m pip install --upgrade pip -q
+          pip install -r requirements.txt -q
+
+          echo "Starting poll loop (max ${MAX_POLL}s)..."
+          ELAPSED=0
+
+          while [ "$ELAPSED" -lt "$MAX_POLL" ]; do
+            echo "--- Poll attempt at +${ELAPSED}s ---"
+            set +e
+            python app.py
+            EXIT_CODE=$?
+            set -e
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              echo "Successfully posted! Done."
+              exit 0
+            elif [ "$EXIT_CODE" -eq 1 ]; then
+              echo "Error (exit 1). Will retry in ${INTERVAL}s..."
+            elif [ "$EXIT_CODE" -eq 2 ]; then
+              echo "No action yet (exit 2). Will retry in ${INTERVAL}s..."
+            else
+              echo "Unexpected exit code $EXIT_CODE. Will retry in ${INTERVAL}s..."
+            fi
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "Poll timeout reached after ${MAX_POLL}s. Giving up."
+          exit 1
