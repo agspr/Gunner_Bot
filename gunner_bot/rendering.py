@@ -98,69 +98,93 @@ def paste_logo_centered(bg_img, logo_img, center_x, center_y, target_height):
 
 def create_match_image(data):
     log.info("Creating graphic: Arsenal vs %s", data['opponent'])
-    width, height = 1080, 1350
+    width, height = 1080, 1500
     img = Image.new('RGB', (width, height), THEME["BG"])
     draw = ImageDraw.Draw(img)
 
-    f_xl = get_font(160)
+    # Font scale
+    f_xl = get_font(140)
     f_h = get_font(40)
     f_sm = get_font(28)
     f_num = get_font(36)
+    f_ctx = get_font(22)
+    f_wm = get_font(20)
 
-    # === SCORE CONTAINER ===
-    draw_shadow_rect(img, 40, 40, 1040, 590, radius=40)
-    draw.rounded_rectangle([40, 40, 1040, 590], radius=40, fill=THEME["CONTAINER"])
+    cx = width / 2
+
+    # =========================================================
+    # SCORE CONTAINER  [40, 40] → [1040, 590]
+    # =========================================================
+    score_box = (40, 40, 1040, 590)
+    draw_shadow_rect(img, *score_box, radius=40)
+    draw.rounded_rectangle(score_box, radius=40, fill=THEME["CONTAINER"])
+
+    # "FULL TIME" label
     draw.text((80, 80), "FULL TIME", font=f_sm, fill=THEME["GOLD"])
 
     # Competition name (right-aligned)
     if data.get('competition'):
         comp_txt = data['competition'].upper()
         comp_bbox = draw.textbbox((0, 0), comp_txt, font=f_sm)
-        draw.text((1040 - 40 - (comp_bbox[2] - comp_bbox[0]), 80), comp_txt, font=f_sm, fill=THEME["TEXT_DIM"])
+        draw.text((1040 - 40 - (comp_bbox[2] - comp_bbox[0]), 80),
+                  comp_txt, font=f_sm, fill=THEME["TEXT_DIM"])
 
-    cx, cy = width / 2, 315
+    # Score
+    cy_score = 310
     score_txt = f"{data['ars_score']} - {data['opp_score']}"
     bbox = draw.textbbox((0, 0), score_txt, font=f_xl)
     sw = bbox[2] - bbox[0]
-    draw.text((cx - sw/2, cy - (bbox[3]-bbox[1])/1.5), score_txt, font=f_xl, fill=THEME["TEXT"])
+    sh = bbox[3] - bbox[1]
+    draw.text((cx - sw / 2, cy_score - sh / 1.5), score_txt, font=f_xl, fill=THEME["TEXT"])
 
     # Badges
+    badge_y = cy_score
     if data.get('ars_logo_img'):
-        paste_logo_centered(img, data['ars_logo_img'], cx - sw/2 - 120, cy, 180)
+        paste_logo_centered(img, data['ars_logo_img'], cx - sw / 2 - 120, badge_y, 180)
     if data.get('opp_logo_img'):
-        paste_logo_centered(img, data['opp_logo_img'], cx + sw/2 + 120, cy, 180)
+        paste_logo_centered(img, data['opp_logo_img'], cx + sw / 2 + 120, badge_y, 180)
 
     # Goalscorers (centered under badges)
     for goals, side_sign in [(data['ars_goals'], -1), (data['opp_goals'], 1)]:
-        y_goals = cy + 110
-        badge_cx = cx + side_sign * (sw/2 + 120)
+        y_goals = badge_y + 110
+        badge_cx = cx + side_sign * (sw / 2 + 120)
         for i, g in enumerate(goals):
             if i > 3:
                 break
             bg = draw.textbbox((0, 0), g, font=f_sm)
-            draw.text((badge_cx - (bg[2]-bg[0])/2, y_goals + (i*35)), g, font=f_sm, fill=THEME["TEXT_DIM"])
+            draw.text((badge_cx - (bg[2] - bg[0]) / 2, y_goals + (i * 35)),
+                      g, font=f_sm, fill=THEME["TEXT_DIM"])
 
-    # Venue and attendance
+    # Venue / Attendance context line
     context_parts = []
     if data.get('venue'):
         context_parts.append(data['venue'])
     if data.get('attendance'):
         context_parts.append(f"Att: {data['attendance']:,}")
     if context_parts:
-        f_ctx = get_font(22)
         ctx_txt = "  |  ".join(context_parts)
         ctx_bbox = draw.textbbox((0, 0), ctx_txt, font=f_ctx)
-        draw.text((cx - (ctx_bbox[2] - ctx_bbox[0]) / 2, 560), ctx_txt, font=f_ctx, fill=THEME["TEXT_DIM"])
+        draw.text((cx - (ctx_bbox[2] - ctx_bbox[0]) / 2, 555),
+                  ctx_txt, font=f_ctx, fill=THEME["TEXT_DIM"])
 
-    # === STATS CONTAINER ===
-    draw_shadow_rect(img, 40, 620, 1040, 1230, radius=40)
-    draw.rounded_rectangle([40, 620, 1040, 1230], radius=40, fill=THEME["CONTAINER"])
+    # =========================================================
+    # DIVIDER LINE
+    # =========================================================
+    draw.line([(80, 605), (1000, 605)], fill="#333333", width=1)
 
+    # =========================================================
+    # STATS CONTAINER  [40, 620] → [1040, 1380]
+    # =========================================================
+    stats_box = (40, 620, 1040, 1380)
+    draw_shadow_rect(img, *stats_box, radius=40)
+    draw.rounded_rectangle(stats_box, radius=40, fill=THEME["CONTAINER"])
+
+    # Header
     header_txt = "MATCH STATS"
     bbox_h = draw.textbbox((0, 0), header_txt, font=f_h)
-    draw.text((cx - (bbox_h[2]-bbox_h[0])/2, 660), header_txt, font=f_h, fill=THEME["TEXT"])
+    draw.text((cx - (bbox_h[2] - bbox_h[0]) / 2, 655), header_txt, font=f_h, fill=THEME["TEXT"])
 
-    # Possession normalization
+    # ── Possession normalization ──
     p_a = data['ars_poss']
     p_o = data['opp_poss']
     if p_a + p_o != 100 and p_a + p_o > 0:
@@ -170,28 +194,45 @@ def create_match_image(data):
         else:
             p_o += diff
 
-    # Build stats list
+    # ── Build stat rows ──
+    # Fixed order: POSSESSION → xG (conditional) → SHOTS → ON TARGET → PASS ACCURACY
     stats_data = [
         ("POSSESSION", f"{p_a}%", f"{p_o}%", True),
-        ("SHOTS", data['ars_shots'], data['opp_shots'], False),
-        ("ON TARGET", data['ars_sot'], data['opp_sot'], False),
     ]
 
+    # xG — only include when available
     if data.get('ars_xg') is not None and data.get('opp_xg') is not None:
-        stats_data.insert(1, ("EXPECTED GOALS (xG)", data['ars_xg'], data['opp_xg'], False))
+        stats_data.append(("EXPECTED GOALS (xG)", f"{data['ars_xg']:.2f}", f"{data['opp_xg']:.2f}", False))
 
+    stats_data.append(("SHOTS", data['ars_shots'], data['opp_shots'], False))
+    stats_data.append(("ON TARGET", data['ars_sot'], data['opp_sot'], False))
+
+    # Pass accuracy — always include when available
     if data.get('ars_pass_pct') is not None and data.get('opp_pass_pct') is not None:
-        stats_data.append(("PASS COMPLETION", f"{data['ars_pass_pct']}%", f"{data['opp_pass_pct']}%", True))
-    else:
-        stats_data.append(("CORNERS", data['ars_corners'], data['opp_corners'], False))
+        stats_data.append(("PASS ACCURACY", f"{data['ars_pass_pct']}%", f"{data['opp_pass_pct']}%", True))
 
-    # Draw stat rows
-    y_stat = 770
+    # ── Draw stat rows ──
+    num_stats = len(stats_data)
+    # Dynamically space rows within the available area (y 730 → 1340)
+    stat_area_top = 730
+    stat_area_bot = 1340
+    row_step = min(110, (stat_area_bot - stat_area_top) // max(num_stats, 1))
+
+    # Center the block vertically
+    block_height = row_step * (num_stats - 1)
+    y_start = stat_area_top + ((stat_area_bot - stat_area_top) - block_height) // 2
+
     bar_w = 320
-    for label, v_a, v_o, is_pct in stats_data:
-        lb = draw.textbbox((0, 0), label, font=f_sm)
-        draw.text((cx - (lb[2]-lb[0])/2, y_stat - 35), label, font=f_sm, fill=THEME["TEXT_DIM"])
+    bar_h = 24
 
+    for idx, (label, v_a, v_o, is_pct) in enumerate(stats_data):
+        y_stat = y_start + idx * row_step
+
+        # Label (centered)
+        lb = draw.textbbox((0, 0), label, font=f_sm)
+        draw.text((cx - (lb[2] - lb[0]) / 2, y_stat - 38), label, font=f_sm, fill=THEME["TEXT_DIM"])
+
+        # Parse values
         safe_va = float(str(v_a).replace('%', '')) if v_a else 0
         safe_vo = float(str(v_o).replace('%', '')) if v_o else 0
 
@@ -206,29 +247,30 @@ def create_match_image(data):
         len_o = min((safe_vo / max_val) * 100, 100)
         ars_winning = safe_va > safe_vo
 
-        # Arsenal bar (right-anchored)
-        draw.text((cx - 20 - bar_w - 90, y_stat - 8), str(v_a), font=f_num, fill=THEME["RED"])
-        draw.rounded_rectangle([cx - 20 - bar_w, y_stat, cx - 20, y_stat + 20],
-                               radius=10, fill=THEME["BAR_TRACK"])
-        act_w = max(20, int((len_a / 100) * bar_w))
-        if act_w > 0:
-            left_col = THEME["RED"] if ars_winning else THEME["RED_DIM"]
-            right_col = THEME["RED_HI"] if ars_winning else THEME["RED"]
-            draw_gradient_pill(img, int(cx - 20 - act_w), y_stat, act_w, 20, left_col, right_col)
+        # Arsenal value + bar (right-anchored to center)
+        draw.text((cx - 20 - bar_w - 90, y_stat - 10), str(v_a), font=f_num, fill=THEME["RED"])
+        draw.rounded_rectangle(
+            [cx - 20 - bar_w, y_stat, cx - 20, y_stat + bar_h],
+            radius=bar_h // 2, fill=THEME["BAR_TRACK"])
+        act_w = max(bar_h, int((len_a / 100) * bar_w))
+        left_col = THEME["RED"] if ars_winning else THEME["RED_DIM"]
+        right_col = THEME["RED_HI"] if ars_winning else THEME["RED"]
+        draw_gradient_pill(img, int(cx - 20 - act_w), y_stat, act_w, bar_h, left_col, right_col)
 
-        # Opponent bar (left-anchored)
-        draw.text((cx + 20 + bar_w + 20, y_stat - 8), str(v_o), font=f_num, fill=THEME["TEXT"])
-        draw.rounded_rectangle([cx + 20, y_stat, cx + 20 + bar_w, y_stat + 20],
-                               radius=10, fill=THEME["BAR_TRACK"])
-        opp_act_w = max(20, int((len_o / 100) * bar_w))
-        if opp_act_w > 0:
-            draw_gradient_pill(img, int(cx + 20), y_stat, opp_act_w, 20, THEME["BAR_TRACK"], THEME["BAR_OPP"])
+        # Opponent value + bar (left-anchored from center)
+        draw.text((cx + 20 + bar_w + 20, y_stat - 10), str(v_o), font=f_num, fill=THEME["TEXT"])
+        draw.rounded_rectangle(
+            [cx + 20, y_stat, cx + 20 + bar_w, y_stat + bar_h],
+            radius=bar_h // 2, fill=THEME["BAR_TRACK"])
+        opp_act_w = max(bar_h, int((len_o / 100) * bar_w))
+        draw_gradient_pill(img, int(cx + 20), y_stat, opp_act_w, bar_h, THEME["BAR_TRACK"], THEME["BAR_OPP"])
 
-        y_stat += 110
-
-    # Footer
+    # =========================================================
+    # FOOTER — watermark inside stats container, bottom-right
+    # =========================================================
     footer_text = "GUNNER BOT"
-    bbox_f = draw.textbbox((0, 0), footer_text, font=f_sm)
-    draw.text((cx - (bbox_f[2]-bbox_f[0])/2, height - 80), footer_text, font=f_sm, fill=THEME["GOLD"])
+    bbox_f = draw.textbbox((0, 0), footer_text, font=f_wm)
+    draw.text((cx - (bbox_f[2] - bbox_f[0]) / 2, height - 70),
+              footer_text, font=f_wm, fill=THEME["GOLD"])
 
     return img

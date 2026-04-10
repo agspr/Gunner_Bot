@@ -110,8 +110,8 @@ def get_match_stats_espn(match_id):
             "ars_logo_img": get_image_from_url(ars['team']['logos'][0]['href']),
             "opp_logo_img": get_image_from_url(opp['team']['logos'][0]['href']),
             "ars_goals": [], "opp_goals": [],
-            "ars_poss": 0, "ars_shots": 0, "ars_sot": 0, "ars_corners": 0,
-            "opp_poss": 0, "opp_shots": 0, "opp_sot": 0, "opp_corners": 0,
+            "ars_poss": 0, "ars_shots": 0, "ars_sot": 0,
+            "opp_poss": 0, "opp_shots": 0, "opp_sot": 0,
             "ars_xg": None, "opp_xg": None,
             "ars_pass_pct": None, "opp_pass_pct": None,
             "match_date": header['competitions'][0]['date'],
@@ -134,9 +134,8 @@ def get_match_stats_espn(match_id):
                 if s['name'] == "possessionPct":   data[f"{prefix}_poss"] = int(val)
                 elif s['name'] == "totalShots":    data[f"{prefix}_shots"] = int(val)
                 elif s['name'] == "shotsOnTarget": data[f"{prefix}_sot"] = int(val)
-                elif s['name'] == "wonCorners":    data[f"{prefix}_corners"] = int(val)
                 elif s['name'] == "passPct":       data[f"{prefix}_pass_pct"] = int(round(val * 100))
-                elif s['name'] == "expectedGoals": data[f"{prefix}_xg"] = val
+                elif s['name'] == "expectedGoals": data[f"{prefix}_xg"] = round(val, 2)
 
         # Parse and aggregate goalscorers
         timeline = header.get('competitions', [{}])[0].get('details', [])
