@@ -19,39 +19,55 @@ jobs:
           TODAY=$(date -u +%Y%m%d)
           NOW_TS=$(date -u +%s)
 
-          echo "Checking ESPN for Arsenal fixtures on $TODAY..."
+          # Query all leagues — the /all/ endpoint is unreliable
+          LEAGUES="eng.1 uefa.champions eng.fa eng.league_cup eng.charity"
 
-          SCHEDULE=$(curl -sf "https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/${TEAM_ID}/schedule")
-          if [ -z "$SCHEDULE" ]; then
-            echo "Failed to fetch schedule."
+          echo "Checking ESPN for Arsenal fixtures on $TODAY across all leagues..."
+
+          ALL_MATCHES=""
+
+          for LEAGUE in $LEAGUES; do
+            echo "  Checking $LEAGUE..."
+            SCHEDULE=$(curl -sf "https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/teams/${TEAM_ID}/schedule" || echo "")
+            if [ -z "$SCHEDULE" ]; then
+              echo "    Failed to fetch $LEAGUE schedule"
+              continue
+            fi
+
+            MATCHES=$(echo "$SCHEDULE" | jq -r --arg today "$TODAY" '
+              .events[] |
+              select(
+                (.date | split("T")[0] | gsub("-";"")) == $today and
+                (.competitions[0].status.type.state == "pre" or .competitions[0].status.type.state == "in")
+              ) |
+              {
+                id: .id,
+                date: .date,
+                state: .competitions[0].status.type.state,
+                name: .name
+              }
+            ' 2>/dev/null || echo "")
+
+            if [ -n "$MATCHES" ]; then
+              echo "    Found matches in $LEAGUE"
+              ALL_MATCHES="${ALL_MATCHES}${MATCHES}"$'\n'
+            else
+              echo "    No matches today in $LEAGUE"
+            fi
+          done
+
+          if [ -z "$ALL_MATCHES" ]; then
+            echo "No Arsenal matches today across any league."
             exit 0
           fi
 
-          MATCHES=$(echo "$SCHEDULE" | jq -r --arg today "$TODAY" '
-            .events[] |
-            select(
-              (.date | split("T")[0] | gsub("-";"")) == $today and
-              (.competitions[0].status.type.state == "pre" or .competitions[0].status.type.state == "in")
-            ) |
-            {
-              id: .id,
-              date: .date,
-              state: .competitions[0].status.type.state,
-              name: .name
-            }
-          ')
-
-          if [ -z "$MATCHES" ]; then
-            echo "No Arsenal matches today."
-            exit 0
-          fi
-
-          echo "$MATCHES" | jq -s '.' | jq -r '.[] | "Match: \(.name) | State: \(.state) | Kick-off: \(.date)"'
-
-          echo "$MATCHES" | jq -c '.' | while read -r match; do
+          # Deduplicate by match ID and process
+          echo "$ALL_MATCHES" | jq -s 'unique_by(.id) | .[]' | jq -c '.' | while read -r match; do
             MATCH_DATE=$(echo "$match" | jq -r '.date')
             MATCH_STATE=$(echo "$match" | jq -r '.state')
             MATCH_NAME=$(echo "$match" | jq -r '.name')
+
+            echo "Match: $MATCH_NAME | State: $MATCH_STATE | Kick-off: $MATCH_DATE"
 
             KICK_TS=$(date -u -d "$MATCH_DATE" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M" "${MATCH_DATE%Z}" +%s 2>/dev/null)
 

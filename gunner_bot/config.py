@@ -6,7 +6,16 @@ BSKY_PASSWORD = os.environ.get("BSKY_PASSWORD")
 
 # --- Configuration ---
 TEAM_ID_ESPN = 359  # Arsenal
-CHECK_INTERVAL = 120  # Minutes between checks
+
+# All competitions Arsenal can appear in.
+# The ESPN `/all/` schedule endpoint is unreliable, so we query each league individually.
+LEAGUES = [
+    "eng.1",              # Premier League
+    "uefa.champions",     # Champions League
+    "eng.fa",             # FA Cup
+    "eng.league_cup",     # League Cup (Carabao)
+    "eng.charity",        # Community Shield
+]
 
 # --- Visual Theme ---
 THEME = {

@@ -3,7 +3,7 @@ import logging
 import requests
 from PIL import Image
 
-from .config import TEAM_ID_ESPN
+from .config import TEAM_ID_ESPN, LEAGUES
 
 log = logging.getLogger(__name__)
 
@@ -24,27 +24,69 @@ def get_image_from_url(url):
 
 
 def get_last_fixture_espn():
-    """Return the match ID of the most recently completed Arsenal fixture."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams/{TEAM_ID_ESPN}/schedule"
-    try:
-        r = requests.get(url, headers=get_headers(), timeout=10).json()
-        events = r.get('events', [])
-        completed = [e for e in events if e['competitions'][0]['status']['type']['state'] == 'post']
-        if not completed:
-            return None
-        completed.sort(key=lambda x: x['date'])
-        return completed[-1]['id']
-    except Exception:
-        log.exception("Failed to fetch fixture list")
+    """Return the match ID of the most recently completed Arsenal fixture.
+
+    Queries every league in LEAGUES individually because the ESPN ``/all/``
+    schedule endpoint no longer returns data.  Results are merged and
+    deduplicated by match ID, then the most recent completed match is returned.
+    """
+    all_completed = {}  # id -> event, avoids duplicates
+
+    for league in LEAGUES:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/teams/{TEAM_ID_ESPN}/schedule"
+        try:
+            r = requests.get(url, headers=get_headers(), timeout=10)
+            if r.status_code != 200:
+                log.warning("ESPN schedule %s returned HTTP %d", league, r.status_code)
+                continue
+            data = r.json()
+            events = data.get('events', [])
+            completed = [e for e in events if e['competitions'][0]['status']['type']['state'] == 'post']
+            log.info("  %s: %d completed matches", league, len(completed))
+            for e in completed:
+                all_completed[e['id']] = e
+        except Exception:
+            log.exception("Failed to fetch %s schedule", league)
+
+    if not all_completed:
+        log.warning("No completed matches found across any league")
         return None
+
+    # Sort by date and return the most recent
+    sorted_matches = sorted(all_completed.values(), key=lambda x: x['date'])
+    last = sorted_matches[-1]
+    log.info("Most recent match: %s (%s)", last['name'], last['date'])
+    return last['id']
 
 
 def get_match_stats_espn(match_id):
     """Fetch full match statistics for a given ESPN match ID."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event={match_id}"
+    # The /all/ summary endpoint still works, but we fall back to league-specific if it fails
+    urls_to_try = [
+        f"https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event={match_id}",
+    ] + [
+        f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league}/summary?event={match_id}"
+        for league in LEAGUES
+    ]
+
+    r_data = None
+    for url in urls_to_try:
+        try:
+            resp = requests.get(url, headers=get_headers(), timeout=10)
+            if resp.status_code == 200:
+                candidate = resp.json()
+                if candidate.get('header', {}).get('competitions'):
+                    r_data = candidate
+                    break
+        except Exception:
+            continue
+
+    if r_data is None:
+        log.error("Could not fetch summary for match %s from any endpoint", match_id)
+        return None
+
     try:
-        r = requests.get(url, headers=get_headers(), timeout=10).json()
-        header = r['header']
+        header = r_data['header']
         status = header['competitions'][0]['status']['type']['state']
 
         if status != 'post':
@@ -57,7 +99,7 @@ def get_match_stats_espn(match_id):
             ars, opp = competitors[1], competitors[0]
 
         # Extract match context from gameInfo and header
-        game_info = r.get('gameInfo', {})
+        game_info = r_data.get('gameInfo', {})
         venue_info = game_info.get('venue', {})
         officials = game_info.get('officials', [])
         league_info = header.get('league', {})
@@ -80,7 +122,7 @@ def get_match_stats_espn(match_id):
         }
 
         # Parse boxscore statistics
-        boxscore = r.get('boxscore', {})
+        boxscore = r_data.get('boxscore', {})
         for team in boxscore.get('teams', []):
             prefix = "ars" if team['team']['id'] == str(TEAM_ID_ESPN) else "opp"
             for s in team.get('statistics', []):
@@ -129,5 +171,5 @@ def get_match_stats_espn(match_id):
 
         return data
     except Exception as e:
-        log.exception("Error fetching stats for match %s", match_id)
+        log.exception("Error parsing stats for match %s", match_id)
         return None
