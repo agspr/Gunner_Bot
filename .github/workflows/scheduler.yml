@@ -28,16 +28,16 @@ jobs:
 
           for LEAGUE in $LEAGUES; do
             echo "  Checking $LEAGUE..."
-            SCHEDULE=$(curl -sf "https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/teams/${TEAM_ID}/schedule" || echo "")
+            SCHEDULE=$(curl -sf "https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/scoreboard?dates=$TODAY" || echo "")
             if [ -z "$SCHEDULE" ]; then
-              echo "    Failed to fetch $LEAGUE schedule"
+              echo "    Failed to fetch $LEAGUE scoreboard"
               continue
             fi
 
-            MATCHES=$(echo "$SCHEDULE" | jq -r --arg today "$TODAY" '
-              .events[] |
+            MATCHES=$(echo "$SCHEDULE" | jq -r --arg team "$TEAM_ID" '
+              .events[]? |
               select(
-                (.date | split("T")[0] | gsub("-";"")) == $today and
+                any(.competitions[0].competitors[]?; .id == $team) and
                 (.competitions[0].status.type.state == "pre" or .competitions[0].status.type.state == "in")
               ) |
               {
