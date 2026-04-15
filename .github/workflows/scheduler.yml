@@ -5,14 +5,15 @@ on:
     - cron: '0 6 * * *'
   workflow_dispatch:
 
-permissions:
-  actions: write
-  contents: read
-
 jobs:
   check-and-dispatch:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Check for Arsenal matches today
         env:
           GH_TOKEN: ${{ github.token }}
