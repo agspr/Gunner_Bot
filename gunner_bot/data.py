@@ -107,6 +107,9 @@ def get_match_stats_espn(match_id):
         data = {
             "opponent": opp['team']['displayName'],
             "ars_score": ars['score'], "opp_score": opp['score'],
+            # ESPN sets `winner: true` on whichever side actually won, including a
+            # penalty-shootout win where the scoreline is level. Absent on draws.
+            "ars_won": ars.get('winner', False),
             "ars_logo_img": get_image_from_url(ars['team']['logos'][0]['href']),
             "opp_logo_img": get_image_from_url(opp['team']['logos'][0]['href']),
             "ars_goals": [], "opp_goals": [],
