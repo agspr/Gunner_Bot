@@ -58,7 +58,10 @@ def main():
         filename = f"result_{stats['opponent']}.png"
         img.save(filename)
 
-        caption = f"Full Time: Arsenal {stats['ars_score']} - {stats['opp_score']} {stats['opponent']}. #COYG #Arsenal"
+        score_line = f"Arsenal {stats['ars_score']} - {stats['opp_score']} {stats['opponent']}"
+        if stats.get('ars_shootout') is not None and stats.get('opp_shootout') is not None:
+            score_line += f" ({stats['ars_shootout']}-{stats['opp_shootout']} on pens)"
+        caption = f"Full Time: {score_line}. #COYG #Arsenal"
 
         if session:
             post_to_bluesky(session, filename, caption)

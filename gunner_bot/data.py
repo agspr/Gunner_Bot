@@ -98,6 +98,12 @@ def get_match_stats_espn(match_id):
         else:
             ars, opp = competitors[1], competitors[0]
 
+        # Penalty shootout scores appear on each competitor only when the match
+        # was decided on penalties (e.g. a cup final). Absent otherwise.
+        ars_so = ars.get('shootoutScore')
+        opp_so = opp.get('shootoutScore')
+        had_shootout = ars_so is not None and opp_so is not None and (ars_so or opp_so)
+
         # Extract match context from gameInfo and header
         game_info = r_data.get('gameInfo', {})
         venue_info = game_info.get('venue', {})
@@ -110,6 +116,9 @@ def get_match_stats_espn(match_id):
             # ESPN sets `winner: true` on whichever side actually won, including a
             # penalty-shootout win where the scoreline is level. Absent on draws.
             "ars_won": ars.get('winner', False),
+            # Penalty shootout tally (Arsenal first); None when not a shootout.
+            "ars_shootout": int(ars_so) if had_shootout else None,
+            "opp_shootout": int(opp_so) if had_shootout else None,
             "ars_logo_img": get_image_from_url(ars['team']['logos'][0]['href']),
             "opp_logo_img": get_image_from_url(opp['team']['logos'][0]['href']),
             "ars_goals": [], "opp_goals": [],
