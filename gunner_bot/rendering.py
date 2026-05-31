@@ -137,11 +137,12 @@ def create_match_image(data):
     sh = bbox[3] - bbox[1]
     draw.text((cx - sw / 2, cy_score - sh / 1.5), score_txt, font=f_xl, fill=THEME["TEXT"])
 
-    # Penalty shootout line (only when the match was decided on penalties)
+    # Penalty shootout line — centered, drawn level with the goalscorer rows
+    # (badge_y + 110). Only shown when the match was decided on penalties.
     if data.get('ars_shootout') is not None and data.get('opp_shootout') is not None:
         pen_txt = f"PENALTIES  {data['ars_shootout']} - {data['opp_shootout']}"
         pen_bbox = draw.textbbox((0, 0), pen_txt, font=f_sm)
-        draw.text((cx - (pen_bbox[2] - pen_bbox[0]) / 2, cy_score + 68),
+        draw.text((cx - (pen_bbox[2] - pen_bbox[0]) / 2, cy_score + 110),
                   pen_txt, font=f_sm, fill=THEME["GOLD"])
 
     # Badges
